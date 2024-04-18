@@ -14,6 +14,7 @@
 
     let addressIP = '';
     let map;
+    let valueDisplayAllAddress = false;
 
     let currentMarker = null;
 
@@ -24,6 +25,13 @@
 
     let loading = true;
     let firstPart = true;
+
+    let currentInformations = null;
+
+    let defaultModal = false;
+    let listSearchAddress = []
+
+    let monitorAddress = []
 
     onMount(async () => {
         await import('leaflet/dist/leaflet.css');
@@ -39,13 +47,14 @@
         if (display) {
             allAddressesIP.forEach(address => {
                 let marker = createMarker(address)
-                marker.addTo(map)
+                marker.addTo(map).openPopup()
                 allMarkersAddress.push(marker)
             })
         } else {
             allMarkersAddress.forEach(marker => marker.remove())
             allMarkersAddress = []
         }
+        valueDisplayAllAddress = display
     }
 
     function loadMap() {
@@ -55,8 +64,6 @@
             maxZoom: 20
         }).addTo(map);
     }
-
-    let currentInformations = null;
 
     function createMarker(addressInformations) {
         let div = L.DomUtil.create('div')
@@ -88,11 +95,15 @@
         currentMarker = marker
     }
 
+    async function saveAllAddressesIP(addressInformations) {
+        const resAllAddresses = await axios.get("http://localhost:8080/address")
+        allAddressesIP = resAllAddresses.data
+    }
+
     async function searchAddressIP() {
         loading = true
         try {
             let resIP = await axios.get('http://localhost:8080/address/' + addressIP)
-            console.log(resIP.data)
             if (resIP.data.length === 0) {
                 loading = false
 
@@ -111,16 +122,18 @@
                 }
                 loading = true
 
-                resIP = await axios.post('http://localhost:8080/address', {address: [addressIP]})
-                console.log(resIP.data)
-                if (resIP.data) {
-                    addMarker(resIP.data)
+                resIP = await axios.post('http://localhost:8080/address', {addresses: [addressIP]})
+                await saveAllAddressesIP()
+
+                if (resIP.data.length > 0) {
+                    addMarker(resIP.data[0])
                 }
             } else {
-                addMarker(resIP.data)
+                addMarker(resIP.data[0])
             }
         } catch (e) {
             console.error(e)
+            Swal.fire("Erreur", "Une erreur est survenue lors de la recherche de l'adresse IP.<br> Message : " + (e.response?.data ?  e.response.data : "non défini"), "error")
         }
         loading = false
     }
@@ -136,7 +149,7 @@
 
     function handleChangeFile (event) {
         const file = event.target.files[0];
-        parseXLS(file)
+        parseXLS(file);
     }
 
     function parseXLS (file) {
@@ -152,8 +165,6 @@
             workbook.SheetNames.forEach(function(sheetName) {
                 let XL_row_object = XLSX.utils.sheet_to_row_object_array(workbook.Sheets[sheetName]);
                 XL_row_object.forEach(address => {
-                    console.log(address.address)
-                    console.log(isNotIncludedStr(address.address, listSearchAddress))
                     if (address.address && isNotIncludedStr(address.address, listSearchAddress)) {
                         listSearchAddress.push(address.address)
                         listSearchAddress = listSearchAddress
@@ -168,49 +179,132 @@
         };
 
         reader.readAsBinaryString(file);
-    };
+    }
 
-    let defaultModal = false;
-    let listSearchAddress = []
+
 
     function isNotIncludedStr(str, list) {
         return !list.some(item => item.includes(str));
     }
 
     async function updateAdresseIP(addressIP) {
+        loading = true
         try {
             const res = await axios.put('http://localhost:8080/address/', {address: addressIP})
             currentInformations = null
             addMarker(res.data)
-            await Swal.fire("Adresse IP mise à jour", "L'adresse IP a bien été mise à jour.", "success")
+            await saveAllAddressesIP()
+            Swal.fire("Adresse IP mise à jour", "L'adresse IP a bien été mise à jour.", "success")
         } catch (e) {
             console.error(e)
-            await Swal.fire("Erreur", "Une erreur est survenue lors de la mise à jour de l'adresse IP.", "error")
+            Swal.fire("Erreur", "Une erreur est survenue lors de la mise à jour de l'adresse IP.<br/>Message : " + (e.response?.data ?  e.response.data : "non défini"), "error")
         }
+        loading = false
     }
 
     async function deleteAdresseIP(addressIP) {
+        loading = true
         try {
             await axios.delete('http://localhost:8080/address/' + addressIP)
+
+            if (currentMarker) {
+                currentMarker.remove()
+                currentMarker = null
+            }
             currentInformations = null
-            currentMarker.remove()
-            currentMarker = null
-            await Swal.fire("Adresse IP supprimée", "L'adresse IP a bien été supprimée.", "success")
+
+            await saveAllAddressesIP()
+
+            const tmpValueDisplayAllAddress = valueDisplayAllAddress
+            displayAllAddress(false)
+            displayAllAddress(tmpValueDisplayAllAddress)
+            Swal.fire("Adresse IP supprimée", "L'adresse IP a bien été supprimée.", "success")
         } catch (e) {
             console.error(e)
-            await Swal.fire("Erreur", "Une erreur est survenue lors de la suppression de l'adresse IP.", "error")
+            Swal.fire("Erreur", "Une erreur est survenue lors de la suppression de l'adresse IP.<br>Message : " + (e.response?.data ?  e.response.data : "non défini"), "error")
         }
+        loading = false
     }
 
     function handleShowAllAddress(event) {
         displayAllAddress(event.target.checked)
+    }
+
+    async function handleAddLotAddress() {
+        listSearchAddress = listSearchAddress.filter(address => address !== '')
+        if (listSearchAddress.length === 0) {
+            return
+        }
+
+        defaultModal = false
+        loading = true
+
+        try {
+            const res = await axios.post('http://localhost:8080/address', {addresses: listSearchAddress})
+            console.log(res.data)
+            await saveAllAddressesIP()
+            res.data.forEach((address) => {
+                addMarker(address)
+            })
+            Swal.fire("Adresses IP ajoutées", "Les adresses IP ont bien été ajoutées.", "success")
+        } catch (e) {
+            console.error(e)
+            Swal.fire("Erreur", "Une erreur est survenue de l'ajout des addresses IP.<br> Message : " + (e.response?.data ?  e.response.data : "non défini"), "error")
+        }
+        loading = false
+    }
+
+    function isAddress (address)  {
+        const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+        return ipRegex.test(address)
+    }
+
+    function convertToCSV(data) {
+        let csv = '';
+        csv += Object.keys(data[0]).join(',') + '\n';
+        data.forEach((row) => {
+            csv += Object.values(row).join(',') + '\n';
+        });
+        return csv;
+    }
+
+    function handleCreateCSV() {
+        // Données d'exemple (supposons que vous avez ces données dans votre application)
+        // const exampleData = [
+        //     { name: 'John', age: 30, city: 'New York' },
+        //     { name: 'Alice', age: 25, city: 'Los Angeles' },
+        //     { name: 'Bob', age: 35, city: 'Chicago' }
+        // ];
+
+        const csvData = convertToCSV(monitorAddress);
+        const blob = new Blob([csvData], { type: 'text/csv' });
+
+        const url = URL.createObjectURL(blob);
+
+        const downloadLink = document.createElement('a');
+        downloadLink.href = url;
+
+        // Simuler un clic sur le lien pour déclencher le téléchargement
+        downloadLink.click();
+
+        // Nettoyer l'URL après le téléchargement
+        URL.revokeObjectURL(url);
+    }
+
+    function handleMonitorIP(informations) {
+        console.log(monitorAddress)
+        if (monitorAddress.some(item => item.query === informations.query)) {
+            return
+        }
+        monitorAddress.push(informations)
+        monitorAddress = monitorAddress
     }
 </script>
 
 <div class="max-w-lg w-full fixed z-[99999] top-4 left-16">
     <Input id="search" placeholder="Ex : 172.10.24.5" size="lg" bind:value={addressIP}>
         <SearchOutline slot="left" class="w-6 h-6 text-gray-500" />
-        <Button slot="right" size="sm" type="submit" on:click={searchAddressIP}>Entrez une adresse IP</Button>
+        <Button slot="right" size="sm" type="submit" on:click={searchAddressIP}>Voir ses informations</Button>
     </Input>
     {#if addressIP && !isNotIncludedStr(addressIP, allAddressesIPQuery) }
         <div class="mt-1 rounded-xl border border-gray-200 bg-white px-4 py-2 flex flex-col gap-2">
@@ -233,7 +327,7 @@
 </div>
 
 {#if currentInformations}
-    <div class="bg-white border border-gray-200 fixed z-[9999] left-8 top-32 py-6 px-8 rounded-lg ">
+    <div class="bg-white border border-gray-200 fixed z-[9999999] left-4 bottom-6 py-6 px-8 rounded-lg ">
         <h1 class="font-semibold mb-4">Récapitulatif des informations</h1>
         <button on:click={() => currentInformations = null} class="absolute top-2 right-2 hover:text-red-800 text-red-600">
             <CloseOutline size="lg"/>
@@ -270,7 +364,7 @@
         </div>
         <Button on:click={() => deleteAdresseIP(currentInformations.query)} color="red"><TrashBinOutline/></Button>
         <Button on:click={() => updateAdresseIP(currentInformations.query)} color="blue"><CloudArrowUpOutline/> Mettre à jour l'addresse IP</Button>
-<!--        <Button on:click={exportInformations} class="w-full mt-4">Exporter les informations</Button>-->
+        <Button on:click={() => handleMonitorIP(currentInformations)} color="blue"><CloudArrowUpOutline/> Surveiller l'adresse IP</Button>
     </div>
 {/if}
 
@@ -289,7 +383,7 @@
     <Fileupload id="with_helper" class="mb-2" on:change={handleChangeFile} />
     <Helper>XSL (MAX. 3Mo).</Helper>
     <svelte:fragment slot="footer">
-        <Button on:click={() => alert('Handle "success"')}>Ajouter</Button>
+        <Button on:click={handleAddLotAddress}>Ajouter</Button>
         <Button color="alternative" on:click={() => defaultModal = false}>Annuler</Button>
     </svelte:fragment>
 </Modal>
@@ -307,10 +401,25 @@
     <div class="fixed z-[9999999] bg-primary-800/50 w-full h-full flex justify-center items-center">
         <div class="bg-white flex justify-center px-8 pt-4 pb-8 rounded-xl border border-gray-200 flex-col">
             <h1 class="text-2xl font-semibold mb-4">Commencer par entrée une adresse IP</h1>
-            <Input type="text" placeholder="Ex : 172.10.24.5" bind:value={addressIP} />
-            <Button on:click={() => { firstPart = false; searchAddressIP()}} class="mt-4">Rechercher</Button>
+            <Input type="text" placeholder="Ex : 172.10.24.5" bind:value={addressIP}/>
+            <Button on:click={() => { firstPart = false; searchAddressIP()}} class="mt-4" disabled={!isAddress(addressIP)}>Rechercher</Button>
         </div>
     </div>
 {/if}
+
+<div class="bg-white border border-gray-200 fixed z-[9999] bottom-6 right-4 rounded-lg w-64">
+    <h1 class="p-2 bg-primary-600 text-white rounded-t-lg">Addresse à surveiller</h1>
+    <div class="px-3 py-2">
+        {#each monitorAddress as address}
+            <div class="flex justify-between items-center py-2 border-b border-gray-200 hover:bg-primary-200">
+                <Button on:click={() => addMarker(address)}>{address.query}</Button>
+                <Button on:click={() => monitorAddress = monitorAddress.filter(item => item.query !== address.query)} color="red" class="w-fit"><TrashBinOutline/></Button>
+            </div>
+        {/each}
+        {#if monitorAddress.length}
+            <Button on:click={handleCreateCSV} class="w-full">Exporter</Button>
+        {/if}
+    </div>
+</div>
 
 <div id="map" class="w-full h-screen"></div>
