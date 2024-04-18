@@ -28,6 +28,9 @@
 	"type": "module",
 	"dependencies": {
 		"axios": "^1.6.8",
-		"swagger-ui": "^5.15.1"
+		"leaflet": "^1.9.4",
+		"swagger-ui": "^5.15.1",
+		"sweetalert2": "^11.10.8",
+		"xlsx": "^0.18.5"
 	}
 }
